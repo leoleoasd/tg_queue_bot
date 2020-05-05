@@ -27,8 +27,7 @@ const (
 type UserInQueue struct {
 	User   *tb.User `json:"user"`
 	Status Status   `json:"status"`
-	int Min			`json:"min"`
-	int Hour		`json:"hour"`
+	time timestamp	`json:timestamp`
 }
 
 type Queue struct {
@@ -184,7 +183,7 @@ func main() {
 		}
 
 		// 加入队列
-		q.Users = append(q.Users, UserInQueue{m.Sender, Waiting})
+		q.Users = append(q.Users, UserInQueue{m.Sender, Waiting,time.Now()})
 		b.Send(m.Chat, "加入队列成功!\n记得**私聊机器人** /start 我哦~", &tb.SendOptions{ReplyTo: m, ParseMode: tb.ModeMarkdown})
 		fmt.Println(m.Sender.FirstName, "加入了队列", q.String())
 		q.CheckStatus(b)
@@ -304,7 +303,7 @@ func main() {
 			q = Queues[index]
 			msg := fmt.Sprintf("由%s创建的队列: \n", q.Creator.FirstName)
 			for i, u := range q.Users {
-				msg += fmt.Sprintf("%d %s: %s, 加入时间:%d,%d\n",i + 1, u.User.FirstName, []string{"进行中", "暂停中", "等待中"}[u.Status], u.Hour,u.Min)
+				msg += fmt.Sprintf("%d %s: %s, 加入时间:%d,%d\n",i + 1, u.User.FirstName, []string{"进行中", "暂停中", "等待中"}[u.Status], u.time.Hour(),u.time.Minute())
 			}
 			doing_count := 0
 			for _, u := range q.Users {
