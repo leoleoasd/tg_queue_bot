@@ -27,6 +27,7 @@ const (
 type UserInQueue struct {
 	User   *tb.User `json:"user"`
 	Status Status   `json:"status"`
+	JoinedAt time.Time  `json:"joined_at"`
 }
 
 type Queue struct {
@@ -182,7 +183,7 @@ func main() {
 		}
 
 		// 加入队列
-		q.Users = append(q.Users, UserInQueue{m.Sender, Waiting})
+		q.Users = append(q.Users, UserInQueue{m.Sender, Waiting, time.Time{}})
 		b.Send(m.Chat, "加入队列成功!\n记得**私聊机器人** /start 我哦~", &tb.SendOptions{ReplyTo: m, ParseMode: tb.ModeMarkdown})
 		fmt.Println(m.Sender.FirstName, "加入了队列", q.String())
 		q.CheckStatus(b)
@@ -495,6 +496,7 @@ func (q *Queue) CheckStatus(b *tb.Bot) {
 		for k, u := range q.Users {
 			if u.Status == Waiting {
 				q.Users[k].Status = Doing
+				q.Users[k].JoinedAt = time.Now()
 				doing_count++
 				b.Send(&tb.Chat{ID: group_id}, fmt.Sprint(u.User.FirstName, "加入了队列!"))
 				b.Send(q.Users[k].User, fmt.Sprint("加入队列成功! \n队列的详细信息:\n", strings.Join(q.Args, " ")))
@@ -508,8 +510,14 @@ func (q *Queue) CheckStatus(b *tb.Bot) {
 	// 群里发队列详情
 	msg := fmt.Sprintf("由 %s 创建的队列: \n", q.Creator.FirstName)
 	for i, u := range q.Users {
-		if i > 5 {break}
-		msg += fmt.Sprintf("%d-%s: %s\n",i + 1, u.User.FirstName, []string{"进行中", "暂停中", "等待中"}[u.Status])
+		if i > 4 {
+			break
+		}
+		if u.Status == Doing {
+			msg += fmt.Sprintf("%d-%s: %s, 加入于 %d 分钟之前.\n",i + 1, u.User.FirstName, []string{"进行中", "暂停中", "等待中"}[u.Status], int(time.Since(u.JoinedAt).Minutes()))
+		} else {
+			msg += fmt.Sprintf("%d-%s: %s\n",i + 1, u.User.FirstName, []string{"进行中", "暂停中", "等待中"}[u.Status])
+		}
 	}
 	msg += fmt.Sprintf(".......\n共有%d人, %d人进行中, 最大同时进行%d人.\n", len(q.Users), doing_count, q.Max)
 	msg += "队列的详细信息是:" + strings.Join(q.Args[1:], " ") + "\n"
