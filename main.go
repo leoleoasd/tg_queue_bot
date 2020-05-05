@@ -33,6 +33,7 @@ type UserInQueue struct {
 type Queue struct {
 	Users   []UserInQueue `json:"users"`
 	Message *tb.Message   `json:"message"`
+	LastMessage *tb.Message `json:"last_message"`
 	Max     int           `json:"max"`
 	Args    []string      `json:"args"`
 	Creator *tb.User      `json:"creator"`
@@ -67,7 +68,16 @@ func main() {
 	}
 
 	b.Handle("/start", func(m *tb.Message) {
-		b.Send(m.Chat, "排队机器人 \n/new <同时人数> <隐藏的详细信息, 如密码> <公开的详细信息, 如门票> 新建排队 \n/join 加入队列 \n/hold 暂停 \n/unhold 继续 \n/exit 退出队列\n/status 查看队列详细信息\n/kick <id> 踢掉第id个人")
+		if m.Chat.ID < 0{
+			mm, _ := b.Send(m.Chat, "请 *私聊发送* !!!", &tb.SendOptions{
+				ReplyTo:   m,
+				ParseMode: tb.ModeMarkdown,
+			})
+			deleteLater(b, mm)
+			deleteLater(b, m)
+		}else{
+			b.Send(m.Chat, "排队机器人 \n/new <同时人数> <隐藏的详细信息, 如密码> <公开的详细信息, 如门票> 新建排队 \n/join 加入队列 \n/hold 暂停 \n/unhold 继续 \n/exit 退出队列\n/status 查看队列详细信息\n/kick <id> 踢掉第id个人")
+		}
 	})
 
 	b.Handle("/help", func(m *tb.Message) {
@@ -82,7 +92,8 @@ func main() {
 	// 创建队列
 	b.Handle("/new", func(m *tb.Message) {
 		if m.Chat.ID <= 0 {
-			b.Send(m.Chat, "请在私聊中发送.", &tb.SendOptions{ReplyTo: m})
+			mm, _ := b.Send(m.Chat, "请在私聊中发送.", &tb.SendOptions{ReplyTo: m})
+			deleteLater(b, mm)
 			return
 		}
 		// 遍历所有队列, 看创建者是否已经有队列了
@@ -145,8 +156,10 @@ func main() {
 			b.Send(m.Chat, "请在群聊中发送.", &tb.SendOptions{ReplyTo: m})
 			return
 		}
+		deleteLater(b, m)
 		if m.ReplyTo == nil {
-			b.Send(m.Chat, "你需要回复 xx创建了队列 的消息.", &tb.SendOptions{ReplyTo: m})
+			mm, _ := b.Send(m.Chat, "你需要回复 xx创建了队列 的消息.", &tb.SendOptions{ReplyTo: m})
+			deleteLater(b, mm)
 			return
 		}
 		// 找到回复的消息
@@ -167,7 +180,8 @@ func main() {
 			}
 		}
 		if index == -1 {
-			b.Send(m.Chat, "你需要回复 xx创建了队列 的消息.\n找不到你回复的消息的队列.", &tb.SendOptions{ReplyTo: m})
+			mm, _ := b.Send(m.Chat, "你需要回复 xx创建了队列 的消息.\n找不到你回复的消息的队列.", &tb.SendOptions{ReplyTo: m})
+			deleteLater(b, mm)
 			return
 		}
 		// 找到了队列
@@ -176,7 +190,8 @@ func main() {
 		for _, queue := range Queues {
 			for _, u := range queue.Users {
 				if u.User.ID == m.Sender.ID {
-					b.Send(m.Chat, "退出队列后才能再次加入队列!", &tb.SendOptions{ReplyTo: m})
+					mm, _ := b.Send(m.Chat, "退出队列后才能再次加入队列!", &tb.SendOptions{ReplyTo: m})
+					deleteLater(b, mm)
 					return
 				}
 			}
@@ -184,12 +199,15 @@ func main() {
 
 		// 加入队列
 		q.Users = append(q.Users, UserInQueue{m.Sender, Waiting, time.Time{}})
-		b.Send(m.Chat, "加入队列成功!\n记得**私聊机器人** /start 我哦~", &tb.SendOptions{ReplyTo: m, ParseMode: tb.ModeMarkdown})
-		fmt.Println(m.Sender.FirstName, "加入了队列", q.String())
+		mm, _ := b.Send(m.Chat, "加入队列成功!\n记得**私聊机器人** /start 我哦~", &tb.SendOptions{ReplyTo: m, ParseMode: tb.ModeMarkdown})
+		deleteLater(b, mm)
 		q.CheckStatus(b)
 	})
 
 	b.Handle("/exit", func(m *tb.Message) {
+		if m.Chat.ID <= 0 {
+			deleteLater(b, m)
+		}
 		index := -1
 		index2 := -1
 		q := &Queue{}
@@ -210,7 +228,9 @@ func main() {
 		// 删除这个人
 		q.Users = append(q.Users[:index2], q.Users[index2+1:]...)
 		fmt.Println(m.Sender.FirstName, "退出了队列", q.String())
-		_, err = b.Send(m.Chat,"成功退出了队列.", &tb.SendOptions{ReplyTo: m})
+		mm, err := b.Send(m.Chat,"成功退出了队列.", &tb.SendOptions{ReplyTo: m})
+		deleteLater(b, mm)
+		deleteLater(b, m)
 		if err != nil {
 			fmt.Println(err)
 		}
@@ -239,9 +259,11 @@ func main() {
 		// 把他状态改成暂停
 		if q.Users[index2].Status == Waiting {
 			q.Users[index2].Status = Holding
-			_, err = b.Send(m.Chat,"成功暂停了队列.", &tb.SendOptions{ReplyTo: m})
+			mm, _ := b.Send(m.Chat,"成功暂停了队列.", &tb.SendOptions{ReplyTo: m})
+			deleteLater(b, mm)
 		}else{
-			_, err = b.Send(m.Chat,"已经暂停或者已经开始了!", &tb.SendOptions{ReplyTo: m})
+			mm, _ := b.Send(m.Chat,"已经暂停或者已经开始了!", &tb.SendOptions{ReplyTo: m})
+			deleteLater(b, mm)
 		}
 		if err != nil {
 			fmt.Println(err)
@@ -270,9 +292,11 @@ func main() {
 		// 同hold
 		if q.Users[index2].Status == Holding {
 			q.Users[index2].Status = Waiting
-			_, err = b.Send(m.Chat,"成功恢复了队列.", &tb.SendOptions{ReplyTo: m})
+			mm, _ := b.Send(m.Chat,"成功恢复了队列.", &tb.SendOptions{ReplyTo: m})
+			deleteLater(b, mm)
 		}else{
-			_, err = b.Send(m.Chat,"没有暂停或者已经开始了!", &tb.SendOptions{ReplyTo: m})
+			mm, _ := b.Send(m.Chat,"没有暂停或者已经开始了!", &tb.SendOptions{ReplyTo: m})
+			deleteLater(b, mm)
 		}
 		if err != nil {
 			fmt.Println(err)
@@ -320,6 +344,15 @@ func main() {
 				msg += strings.Join(q.Args[1:], " ")
 			}
 			b.Send(m.Chat, msg, &tb.SendOptions{ParseMode: tb.ModeHTML})
+		} else {
+			if m.Chat.ID < 0 {
+				mm, _ := b.Send(m.Chat, "请 *私聊发送* !!!", &tb.SendOptions{
+					ReplyTo:   m,
+					ParseMode: tb.ModeMarkdown,
+				})
+				deleteLater(b, mm)
+				deleteLater(b, m)
+			}
 		}
 		return
 	})
@@ -410,6 +443,13 @@ func main() {
 			// 删队列
 			Queues = append(Queues[:index], Queues[index+1:]...)
 			b.Send(m.Chat, "队列删除成功!", &tb.SendOptions{ParseMode: tb.ModeHTML})
+		} else {
+			mm, _ := b.Send(m.Chat, "请 *私聊发送* !!!", &tb.SendOptions{
+				ReplyTo:   m,
+				ParseMode: tb.ModeMarkdown,
+			})
+			deleteLater(b, mm)
+			deleteLater(b, m)
 		}
 	})
 
@@ -433,6 +473,13 @@ func main() {
 			q := Queues[index]
 			q.Args = strings.Split(m.Text," ")[1:]
 			b.Send(m.Chat, "队列编辑成功!", &tb.SendOptions{ParseMode: tb.ModeHTML})
+		} else {
+			mm, _ := b.Send(m.Chat, "请 *私聊发送* !!!", &tb.SendOptions{
+				ReplyTo:   m,
+				ParseMode: tb.ModeMarkdown,
+			})
+			deleteLater(b, mm)
+			deleteLater(b, m)
 		}
 	})
 
@@ -498,7 +545,8 @@ func (q *Queue) CheckStatus(b *tb.Bot) {
 				q.Users[k].Status = Doing
 				q.Users[k].JoinedAt = time.Now()
 				doing_count++
-				b.Send(&tb.Chat{ID: group_id}, fmt.Sprint(u.User.FirstName, "加入了队列!"))
+				mm, _ := b.Send(&tb.Chat{ID: group_id}, fmt.Sprint(u.User.FirstName, "加入了队列!"))
+				deleteLater(b, mm)
 				b.Send(q.Users[k].User, fmt.Sprint("加入队列成功! \n队列的详细信息:\n", strings.Join(q.Args, " ")))
 			}
 
@@ -528,8 +576,11 @@ func (q *Queue) CheckStatus(b *tb.Bot) {
 	} else {
 		// 更新 发的消息到代表队列的消息的映射
 		MsgToQue[m.ID] = q.Message.ID
-		fmt.Println(MsgToQue)
 	}
+	if q.LastMessage != nil {
+		_ = b.Delete(q.LastMessage)
+	}
+	q.LastMessage = m
 	// 更新一下储存的数据
 	file, err := os.OpenFile("data.json", os.O_APPEND|os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0777)
 	if err != nil {
@@ -553,4 +604,14 @@ func (q *Queue) CheckStatus(b *tb.Bot) {
 func (q *Queue) String() string {
 	j, _ := json.Marshal(q)
 	return string(j)
+}
+
+
+func deleteLater(bot *tb.Bot, m *tb.Message) {
+	if m != nil {
+		go func(){
+			<- time.After(10 * time.Second)
+			_ = bot.Delete(m)
+		}()
+	}
 }
