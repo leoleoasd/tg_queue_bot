@@ -27,6 +27,8 @@ const (
 type UserInQueue struct {
 	User   *tb.User `json:"user"`
 	Status Status   `json:"status"`
+	int Min			`json:"min"`
+	int Hour		`json:"hour"`
 }
 
 type Queue struct {
@@ -302,7 +304,7 @@ func main() {
 			q = Queues[index]
 			msg := fmt.Sprintf("由%s创建的队列: \n", q.Creator.FirstName)
 			for i, u := range q.Users {
-				msg += fmt.Sprintf("%d %s: %s\n",i + 1, u.User.FirstName, []string{"进行中", "暂停中", "等待中"}[u.Status])
+				msg += fmt.Sprintf("%d %s: %s, 加入时间:%d,%d\n",i + 1, u.User.FirstName, []string{"进行中", "暂停中", "等待中"}[u.Status], u.Hour,u.Min)
 			}
 			doing_count := 0
 			for _, u := range q.Users {
