@@ -37,7 +37,7 @@ type Queue struct {
 	Max         int           `json:"max"`
 	PublicInfo  string        `json:"public_info"`
 	Creator     *tb.User      `json:"creator"`
-	Password    string        `json:"password"`
+	PrivateInfo string        `json:"password"`
 }
 
 var Queues []*Queue
@@ -144,12 +144,12 @@ func main() {
 			return
 		}
 		nq := Queue{
-			Users:      nil,
-			Message:    chatm, // 机器人在群里发的消息, 用于从回复消息找到队列
-			Max:        int(max_count),
-			PublicInfo: publicInfo,
-			Creator:    m.Sender,
-			Password:   args[1],
+			Users:       nil,
+			Message:     chatm, // 机器人在群里发的消息, 用于从回复消息找到队列
+			Max:         int(max_count),
+			PublicInfo:  publicInfo,
+			Creator:     m.Sender,
+			PrivateInfo: args[1],
 		}
 		// 放进队列数组里
 		Queues = append(Queues, &nq)
@@ -178,7 +178,7 @@ func main() {
 			// 建立了一个从新的消息的id到队列最开始的消息的映射
 		}
 		index := -1
-		q := &Queue{}
+		var q *Queue
 		for ind, que := range Queues {
 			if que.Message.ID == idToFind {
 				index = ind
@@ -216,7 +216,7 @@ func main() {
 		}
 		index := -1
 		index2 := -1
-		q := &Queue{}
+		var q *Queue
 		// 遍历队列找用户
 		for inde1, queue := range Queues {
 			for inde2, u := range queue.Users {
@@ -241,13 +241,12 @@ func main() {
 			fmt.Println(err)
 		}
 		q.CheckStatus(b)
-		return
 	})
 
 	b.Handle("/hold", func(m *tb.Message) {
 		index := -1
 		index2 := -1
-		q := &Queue{}
+		var q *Queue
 		// 遍历队列找用户
 		for inde1, queue := range Queues {
 			for inde2, u := range queue.Users {
@@ -275,13 +274,12 @@ func main() {
 			fmt.Println(err)
 		}
 		q.CheckStatus(b)
-		return
 	})
 
 	b.Handle("/unhold", func(m *tb.Message) {
 		index := -1
 		index2 := -1
-		q := &Queue{}
+		var q *Queue
 		for inde1, queue := range Queues {
 			for inde2, u := range queue.Users {
 				if u.User.ID == m.Sender.ID {
@@ -308,7 +306,6 @@ func main() {
 			fmt.Println(err)
 		}
 		q.CheckStatus(b)
-		return
 	})
 
 	b.Handle("/status", func(m *tb.Message) {
@@ -316,7 +313,7 @@ func main() {
 			// 如果是私聊发的
 			index := -1
 			index2 := -1
-			q := &Queue{}
+			var q *Queue
 			// 找队列
 			for inde1, queue := range Queues {
 				for inde2, u := range queue.Users {
@@ -344,7 +341,7 @@ func main() {
 			msg += fmt.Sprintf("共有%d人, %d人进行中, 最大同时进行%d人.\n", len(q.Users), doing_count, q.Max)
 			if q.Users[index2].Status == Doing {
 				// 如果已经进行中, 就发密码
-				msg += q.Password + " " + q.PublicInfo
+				msg += q.PrivateInfo + " " + q.PublicInfo
 			} else {
 				// 如果没有, 就先不发密码
 				msg += q.PublicInfo
@@ -362,7 +359,7 @@ func main() {
 				idToFind = MsgToQue[idToFind]
 			}
 			index := -1
-			q := &Queue{}
+			var q *Queue
 			for ind, que := range Queues {
 				if que.Message.ID == idToFind {
 					index = ind
@@ -377,7 +374,6 @@ func main() {
 			q = Queues[index]
 			q.CheckStatus(b)
 		}
-		return
 	})
 
 	b.Handle("/kick", func(m *tb.Message) {
@@ -403,7 +399,7 @@ func main() {
 			idToFind = MsgToQue[idToFind]
 		}
 		index := -1
-		q := &Queue{}
+		var q *Queue
 		for ind, que := range Queues {
 			if que.Message.ID == idToFind {
 				index = ind
@@ -502,7 +498,7 @@ func main() {
 			}
 			q := Queues[index]
 			q.PublicInfo = strings.Join(args[1:], " ")
-			q.Password = args[0]
+			q.PrivateInfo = args[0]
 			b.Send(m.Chat, "队列编辑成功!", &tb.SendOptions{ParseMode: tb.ModeHTML})
 		} else {
 			mm, _ := b.Send(m.Chat, "请 *私聊发送* !!!", &tb.SendOptions{
@@ -544,12 +540,12 @@ func main() {
 	// 写回数据
 	file, err = os.OpenFile("data.json", os.O_APPEND|os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0777)
 	if err != nil {
-		_ = fmt.Errorf("Could not open file to save!\n")
+		fmt.Printf("could not open file to save\n")
 		j, _ := json.Marshal(struct {
 			Q *[]*Queue    `json:"q"`
 			M *map[int]int `json:"m"`
 		}{&Queues, &MsgToQue})
-		_ = fmt.Errorf("Queue: %s\n", j)
+		fmt.Printf("queue: %s\n", j)
 		return
 	}
 	// 搞个临时struct用于json编码
@@ -578,7 +574,7 @@ func (q *Queue) CheckStatus(b *tb.Bot) {
 				doing_count++
 				mm, _ := b.Send(&tb.Chat{ID: group_id}, fmt.Sprint(u.User.FirstName, "加入了队列!"))
 				deleteLater(b, mm)
-				b.Send(q.Users[k].User, fmt.Sprint("加入队列成功! \n队列的详细信息:\n", q.PublicInfo))
+				b.Send(q.Users[k].User, fmt.Sprintf("加入队列成功! \n队列的详细信息:%s\n队列的秘密信息是:%s\n", q.PublicInfo, q.PrivateInfo))
 			}
 
 			if doing_count == q.Max {
@@ -618,12 +614,12 @@ func (q *Queue) CheckStatus(b *tb.Bot) {
 	// 更新一下储存的数据
 	file, err := os.OpenFile("data.json", os.O_APPEND|os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0777)
 	if err != nil {
-		_ = fmt.Errorf("Could not open file to save!\n")
+		fmt.Printf("could not open file to save\n")
 		j, _ := json.Marshal(struct {
 			Q *[]*Queue    `json:"q"`
 			M *map[int]int `json:"m"`
 		}{&Queues, &MsgToQue})
-		_ = fmt.Errorf("Queue: %s\n", j)
+		fmt.Printf("queue: %s\n", j)
 		return
 	}
 	j, _ := json.Marshal(struct {
