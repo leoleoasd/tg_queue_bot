@@ -25,18 +25,19 @@ const (
 )
 
 type UserInQueue struct {
-	User   *tb.User `json:"user"`
-	Status Status   `json:"status"`
-	JoinedAt time.Time  `json:"joined_at"`
+	User     *tb.User  `json:"user"`
+	Status   Status    `json:"status"`
+	JoinedAt time.Time `json:"joined_at"`
 }
 
 type Queue struct {
-	Users   []UserInQueue `json:"users"`
-	Message *tb.Message   `json:"message"`
-	LastMessage *tb.Message `json:"last_message"`
-	Max     int           `json:"max"`
-	Args    []string      `json:"args"`
-	Creator *tb.User      `json:"creator"`
+	Users       []UserInQueue `json:"users"`
+	Message     *tb.Message   `json:"message"`
+	LastMessage *tb.Message   `json:"last_message"`
+	Max         int           `json:"max"`
+	PublicInfo  string        `json:"public_info"`
+	Creator     *tb.User      `json:"creator"`
+	Password    string        `json:"password"`
 }
 
 var Queues []*Queue
@@ -46,16 +47,22 @@ var admins = []int{}
 
 func main() {
 	file, err := os.Open("config.yml")
-	if err != nil {panic(err)}
+	if err != nil {
+		panic(err)
+	}
 	token := ""
 	bytes, err := ioutil.ReadAll(file)
-	if err != nil {panic(err)}
-	err = yaml.Unmarshal(bytes, struct{
-		Token *string `yaml:"token"`
-		GroupId *int64 `yaml:"group_id"`
-		Admins *[]int `yaml:"admins"`
+	if err != nil {
+		panic(err)
+	}
+	err = yaml.Unmarshal(bytes, struct {
+		Token   *string `yaml:"token"`
+		GroupId *int64  `yaml:"group_id"`
+		Admins  *[]int  `yaml:"admins"`
 	}{&token, &group_id, &admins})
-	if err != nil {panic(err)}
+	if err != nil {
+		panic(err)
+	}
 
 	b, err := tb.NewBot(tb.Settings{
 		Token:  token,
@@ -68,14 +75,14 @@ func main() {
 	}
 
 	b.Handle("/start", func(m *tb.Message) {
-		if m.Chat.ID < 0{
+		if m.Chat.ID < 0 {
 			mm, _ := b.Send(m.Chat, "请 *私聊发送* !!!", &tb.SendOptions{
 				ReplyTo:   m,
 				ParseMode: tb.ModeMarkdown,
 			})
 			deleteLater(b, mm)
 			deleteLater(b, m)
-		}else{
+		} else {
 			b.Send(m.Chat, "排队机器人 \n/new <同时人数> <隐藏的详细信息, 如密码> <公开的详细信息, 如门票> 新建排队 \n/join 加入队列 \n/hold 暂停 \n/unhold 继续 \n/exit 退出队列\n/status 查看队列详细信息\n/kick <id> 踢掉第id个人")
 		}
 	})
@@ -99,7 +106,7 @@ func main() {
 		// 遍历所有队列, 看创建者是否已经有队列了
 		index := -1
 		for inde1, queue := range Queues {
-			if queue.Creator.ID == m.Sender.ID{
+			if queue.Creator.ID == m.Sender.ID {
 				index = inde1
 			}
 		}
@@ -108,21 +115,26 @@ func main() {
 			return
 		}
 		// 获取参数
-		sli := strings.Split(m.Text, " ")
-		if len(sli) <= 2 {
-			// 参数错误, 缺少人数
+		args := cleanCommandArguments(m)
+		if len(args) < 2 {
+			// 参数错误, 至少两个参数: 人数, 密码
 			b.Send(m.Chat, "参数错误!", &tb.SendOptions{ReplyTo: m})
 			return
 		}
-		max_count_s := sli[1] // 人数字符串
+		max_count_s := args[0]                                  // 人数字符串
 		max_count, err := strconv.ParseInt(max_count_s, 10, 32) // 转成int
-		if err != nil || max_count <= 0 { // 人数有问题
+		if err != nil || max_count < 1 || max_count > 7 {       // 人数有问题
 			b.Send(m.Chat, "参数错误!", &tb.SendOptions{ReplyTo: m})
 			return
 		}
-		var toJoin []string
-		if len(sli) > 3 {
-			toJoin = sli[3:]
+		password := args[1]
+		if len(password) != 5 {
+			b.Send(m.Chat, "参数错误! 密码长度错误!", &tb.SendOptions{ReplyTo: m})
+			return
+		}
+		var publicInfo string
+		if len(args) > 2 {
+			publicInfo = strings.Join(args[2:], " ")
 		}
 		// 第一个参数: 人数
 		// 第二个参数: 密码
@@ -131,7 +143,7 @@ func main() {
 
 		chatm, err := b.Send(&tb.Chat{ID: group_id},
 			fmt.Sprintf("%s 刚创建了一个队列!\n队列的详细信息是: %s\n回复这条消息, 发送 /join 即可加入队列!\n记得先 /start 我哦!",
-				m.Sender.FirstName, strings.Join(toJoin, " ")),
+				m.Sender.FirstName, publicInfo),
 			&tb.SendOptions{ParseMode: tb.ModeHTML},
 		)
 		if err != nil {
@@ -139,11 +151,12 @@ func main() {
 			return
 		}
 		nq := Queue{
-			Users:   nil,
-			Message: chatm, // 机器人在群里发的消息, 用于从回复消息找到队列
-			Max:     int(max_count),
-			Args:    sli[2:],
-			Creator: m.Sender,
+			Users:      nil,
+			Message:    chatm, // 机器人在群里发的消息, 用于从回复消息找到队列
+			Max:        int(max_count),
+			PublicInfo: publicInfo,
+			Creator:    m.Sender,
+			Password:   password,
 		}
 		// 放进队列数组里
 		Queues = append(Queues, &nq)
@@ -221,14 +234,14 @@ func main() {
 			}
 		}
 		if index == -1 || index2 == -1 {
-			b.Send(m.Chat,"你还没加入任何队列", &tb.SendOptions{ReplyTo: m})
+			b.Send(m.Chat, "你还没加入任何队列", &tb.SendOptions{ReplyTo: m})
 			return
 		}
 		q = Queues[index]
 		// 删除这个人
 		q.Users = append(q.Users[:index2], q.Users[index2+1:]...)
 		fmt.Println(m.Sender.FirstName, "退出了队列", q.String())
-		mm, err := b.Send(m.Chat,"成功退出了队列.", &tb.SendOptions{ReplyTo: m})
+		mm, err := b.Send(m.Chat, "成功退出了队列.", &tb.SendOptions{ReplyTo: m})
 		deleteLater(b, mm)
 		deleteLater(b, m)
 		if err != nil {
@@ -252,17 +265,17 @@ func main() {
 			}
 		}
 		if index == -1 || index2 == -1 {
-			b.Send(m.Chat,"你还没加入任何队列", &tb.SendOptions{ReplyTo: m})
+			b.Send(m.Chat, "你还没加入任何队列", &tb.SendOptions{ReplyTo: m})
 			return
 		}
 		q = Queues[index]
 		// 把他状态改成暂停
 		if q.Users[index2].Status == Waiting {
 			q.Users[index2].Status = Holding
-			mm, _ := b.Send(m.Chat,"成功暂停了队列.", &tb.SendOptions{ReplyTo: m})
+			mm, _ := b.Send(m.Chat, "成功暂停了队列.", &tb.SendOptions{ReplyTo: m})
 			deleteLater(b, mm)
-		}else{
-			mm, _ := b.Send(m.Chat,"已经暂停或者已经开始了!", &tb.SendOptions{ReplyTo: m})
+		} else {
+			mm, _ := b.Send(m.Chat, "已经暂停或者已经开始了!", &tb.SendOptions{ReplyTo: m})
 			deleteLater(b, mm)
 		}
 		if err != nil {
@@ -285,17 +298,17 @@ func main() {
 			}
 		}
 		if index == -1 || index2 == -1 {
-			b.Send(m.Chat,"你还没加入任何队列", &tb.SendOptions{ReplyTo: m})
+			b.Send(m.Chat, "你还没加入任何队列", &tb.SendOptions{ReplyTo: m})
 			return
 		}
 		q = Queues[index]
 		// 同hold
 		if q.Users[index2].Status == Holding {
 			q.Users[index2].Status = Waiting
-			mm, _ := b.Send(m.Chat,"成功恢复了队列.", &tb.SendOptions{ReplyTo: m})
+			mm, _ := b.Send(m.Chat, "成功恢复了队列.", &tb.SendOptions{ReplyTo: m})
 			deleteLater(b, mm)
-		}else{
-			mm, _ := b.Send(m.Chat,"没有暂停或者已经开始了!", &tb.SendOptions{ReplyTo: m})
+		} else {
+			mm, _ := b.Send(m.Chat, "没有暂停或者已经开始了!", &tb.SendOptions{ReplyTo: m})
 			deleteLater(b, mm)
 		}
 		if err != nil {
@@ -327,7 +340,7 @@ func main() {
 			q = Queues[index]
 			msg := fmt.Sprintf("由%s创建的队列: \n", q.Creator.FirstName)
 			for i, u := range q.Users {
-				msg += fmt.Sprintf("%d %s: %s\n",i + 1, u.User.FirstName, []string{"进行中", "暂停中", "等待中"}[u.Status])
+				msg += fmt.Sprintf("%d %s: %s\n", i+1, u.User.FirstName, []string{"进行中", "暂停中", "等待中"}[u.Status])
 			}
 			doing_count := 0
 			for _, u := range q.Users {
@@ -338,10 +351,10 @@ func main() {
 			msg += fmt.Sprintf("共有%d人, %d人进行中, 最大同时进行%d人.\n", len(q.Users), doing_count, q.Max)
 			if q.Users[index2].Status == Doing {
 				// 如果已经进行中, 就发密码
-				msg += strings.Join(q.Args, " ")
+				msg += q.Password + " " + q.PublicInfo
 			} else {
 				// 如果没有, 就先不发密码
-				msg += strings.Join(q.Args[1:], " ")
+				msg += q.PublicInfo
 			}
 			b.Send(m.Chat, msg, &tb.SendOptions{ParseMode: tb.ModeHTML})
 		} else {
@@ -359,13 +372,13 @@ func main() {
 
 	b.Handle("/kick", func(m *tb.Message) {
 		// t人
-		args := strings.Split(m.Text, " ")
-		if len(args) < 2 {
+		args := cleanCommandArguments(m)
+		if len(args) == 0 {
 			b.Send(m.Chat, "用法: /kick <index> \n强行踢掉第index个人.", &tb.SendOptions{ReplyTo: m})
 			return
 		}
 		// 找第二个参数
-		toKick, err := strconv.ParseInt(args[1],10,64)
+		toKick, err := strconv.ParseInt(args[0], 10, 64)
 		if err != nil || toKick <= 0 {
 			b.Send(m.Chat, "用法: /kick <index> \n强行踢掉第index个人.", &tb.SendOptions{ReplyTo: m})
 			return
@@ -392,7 +405,7 @@ func main() {
 			return
 		}
 		// 找到后
-		q=Queues[index]
+		q = Queues[index]
 
 		if m.Chat.ID > 0 {
 			// 私聊发必须是队列创建者
@@ -406,7 +419,7 @@ func main() {
 				// 群里发的话检测一下是不是管理员
 				chatMem, err := b.ChatMemberOf(m.Chat, m.Sender)
 				if err != nil {
-				}else{
+				} else {
 					if chatMem.Role != tb.Administrator && chatMem.Role != tb.Creator && m.Sender.ID != q.Creator.ID {
 						b.Send(m.Chat, "你需要是管理员或者是队列的创建者", &tb.SendOptions{ReplyTo: m})
 						return
@@ -418,7 +431,7 @@ func main() {
 		if len(q.Users) < int(toKick) {
 			b.Send(m.Chat, "找不到你想踢出的人.")
 		}
-		_, err = b.Send(m.Chat,q.Users[toKick-1].User.FirstName + "被踢出了队列.", &tb.SendOptions{ReplyTo: m})
+		_, err = b.Send(m.Chat, q.Users[toKick-1].User.FirstName+"被踢出了队列.", &tb.SendOptions{ReplyTo: m})
 		q.Users = append(q.Users[:toKick-1], q.Users[toKick:]...)
 		if err != nil {
 			fmt.Println(err)
@@ -432,7 +445,7 @@ func main() {
 			index := -1
 			// 找队列
 			for inde1, queue := range Queues {
-				if queue.Creator.ID == m.Sender.ID{
+				if queue.Creator.ID == m.Sender.ID {
 					index = inde1
 				}
 			}
@@ -457,7 +470,7 @@ func main() {
 		if m.Chat.ID > 0 {
 			index := -1
 			for inde1, queue := range Queues {
-				if queue.Creator.ID == m.Sender.ID{
+				if queue.Creator.ID == m.Sender.ID {
 					index = inde1
 				}
 			}
@@ -466,12 +479,18 @@ func main() {
 				return
 			}
 			// 找到参数, 得多于1个
-			if len(strings.Split(m.Text," "))<= 1{
+			args := cleanCommandArguments(m)
+			if len(args) == 0 {
 				b.Send(m.Chat, "参数错误!", &tb.SendOptions{ReplyTo: m})
 				return
 			}
+			if len(args[0]) != 5 {
+				b.Send(m.Chat, "参数错误! 密码长度错误!", &tb.SendOptions{ReplyTo: m})
+				return
+			}
 			q := Queues[index]
-			q.Args = strings.Split(m.Text," ")[1:]
+			q.PublicInfo = strings.Join(args[1:], " ")
+			q.Password = args[0]
 			b.Send(m.Chat, "队列编辑成功!", &tb.SendOptions{ParseMode: tb.ModeHTML})
 		} else {
 			mm, _ := b.Send(m.Chat, "请 *私聊发送* !!!", &tb.SendOptions{
@@ -495,14 +514,14 @@ func main() {
 	file, err = os.OpenFile("data.json", os.O_APPEND|os.O_CREATE|os.O_RDONLY, 0777)
 	byt, err := ioutil.ReadAll(file)
 	if err == nil {
-		json.Unmarshal(byt, &struct{
-			Q *[]*Queue `json:"q"`
+		json.Unmarshal(byt, &struct {
+			Q *[]*Queue    `json:"q"`
 			M *map[int]int `json:"m"`
 		}{&Queues, &MsgToQue})
 		if MsgToQue == nil {
 			MsgToQue = make(map[int]int)
 		}
-		fmt.Printf("%s\n",string(byt))
+		fmt.Printf("%s\n", string(byt))
 	} else {
 		fmt.Print(err)
 	}
@@ -514,16 +533,16 @@ func main() {
 	file, err = os.OpenFile("data.json", os.O_APPEND|os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0777)
 	if err != nil {
 		_ = fmt.Errorf("Could not open file to save!\n")
-		j, _ := json.Marshal(struct{
-			Q *[]*Queue `json:"q"`
+		j, _ := json.Marshal(struct {
+			Q *[]*Queue    `json:"q"`
 			M *map[int]int `json:"m"`
 		}{&Queues, &MsgToQue})
 		_ = fmt.Errorf("Queue: %s\n", j)
 		return
 	}
 	// 搞个临时struct用于json编码
-	j, _ := json.Marshal(struct{
-		Q *[]*Queue `json:"q"`
+	j, _ := json.Marshal(struct {
+		Q *[]*Queue    `json:"q"`
 		M *map[int]int `json:"m"`
 	}{&Queues, &MsgToQue})
 	_, _ = file.Write(j)
@@ -547,7 +566,7 @@ func (q *Queue) CheckStatus(b *tb.Bot) {
 				doing_count++
 				mm, _ := b.Send(&tb.Chat{ID: group_id}, fmt.Sprint(u.User.FirstName, "加入了队列!"))
 				deleteLater(b, mm)
-				b.Send(q.Users[k].User, fmt.Sprint("加入队列成功! \n队列的详细信息:\n", strings.Join(q.Args, " ")))
+				b.Send(q.Users[k].User, fmt.Sprint("加入队列成功! \n队列的详细信息:\n", q.PublicInfo))
 			}
 
 			if doing_count == q.Max {
@@ -562,13 +581,13 @@ func (q *Queue) CheckStatus(b *tb.Bot) {
 			break
 		}
 		if u.Status == Doing {
-			msg += fmt.Sprintf("%d-%s: %s, 加入于 %d 分钟之前.\n",i + 1, u.User.FirstName, []string{"进行中", "暂停中", "等待中"}[u.Status], int(time.Since(u.JoinedAt).Minutes()))
+			msg += fmt.Sprintf("%d-%s: %s, 加入于 %d 分钟之前.\n", i+1, u.User.FirstName, []string{"进行中", "暂停中", "等待中"}[u.Status], int(time.Since(u.JoinedAt).Minutes()))
 		} else {
-			msg += fmt.Sprintf("%d-%s: %s\n",i + 1, u.User.FirstName, []string{"进行中", "暂停中", "等待中"}[u.Status])
+			msg += fmt.Sprintf("%d-%s: %s\n", i+1, u.User.FirstName, []string{"进行中", "暂停中", "等待中"}[u.Status])
 		}
 	}
 	msg += fmt.Sprintf(".......\n共有%d人, %d人进行中, 最大同时进行%d人.\n", len(q.Users), doing_count, q.Max)
-	msg += "队列的详细信息是:" + strings.Join(q.Args[1:], " ") + "\n"
+	msg += "队列的详细信息是:" + q.PublicInfo + "\n"
 	msg += "回复本消息, 发送 /join 即可加入队列."
 	m, err := b.Send(&tb.Chat{ID: group_id}, msg, &tb.SendOptions{ParseMode: tb.ModeHTML})
 	if err != nil {
@@ -585,15 +604,15 @@ func (q *Queue) CheckStatus(b *tb.Bot) {
 	file, err := os.OpenFile("data.json", os.O_APPEND|os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0777)
 	if err != nil {
 		_ = fmt.Errorf("Could not open file to save!\n")
-		j, _ := json.Marshal(struct{
-			Q *[]*Queue `json:"q"`
+		j, _ := json.Marshal(struct {
+			Q *[]*Queue    `json:"q"`
 			M *map[int]int `json:"m"`
 		}{&Queues, &MsgToQue})
 		_ = fmt.Errorf("Queue: %s\n", j)
 		return
 	}
-	j, _ := json.Marshal(struct{
-		Q *[]*Queue `json:"q"`
+	j, _ := json.Marshal(struct {
+		Q *[]*Queue    `json:"q"`
 		M *map[int]int `json:"m"`
 	}{&Queues, &MsgToQue})
 	_, _ = file.Write(j)
@@ -606,12 +625,22 @@ func (q *Queue) String() string {
 	return string(j)
 }
 
-
 func deleteLater(bot *tb.Bot, m *tb.Message) {
 	if m != nil {
-		go func(){
-			<- time.After(10 * time.Second)
+		go func() {
+			<-time.After(10 * time.Second)
 			_ = bot.Delete(m)
 		}()
 	}
+}
+
+func cleanCommandArguments(m *tb.Message) (args []string) {
+	var parts = strings.Split(m.Payload, " ")
+	for _, arg := range parts {
+		arg = strings.TrimSpace(arg)
+		if len(arg) > 0 {
+			args = append(args, arg)
+		}
+	}
+	return
 }
