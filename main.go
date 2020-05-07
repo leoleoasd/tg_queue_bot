@@ -12,7 +12,6 @@ import (
 	"syscall"
 	"time"
 
-	. "github.com/ahmetb/go-linq"
 	tb "gopkg.in/tucnak/telebot.v2"
 	"gopkg.in/yaml.v2"
 )
@@ -36,8 +35,9 @@ type Queue struct {
 	Message     *tb.Message   `json:"message"`
 	LastMessage *tb.Message   `json:"last_message"`
 	Max         int           `json:"max"`
-	Args        []string      `json:"args"`
+	PublicInfo  string        `json:"public_info"`
 	Creator     *tb.User      `json:"creator"`
+	Password    string        `json:"password"`
 }
 
 var Queues []*Queue
@@ -116,25 +116,21 @@ func main() {
 			return
 		}
 		// 获取参数
-		var sli []string
-		From(strings.Split(m.Text, " ")).Where(func(s interface{}) bool {
-			return s.(string) != ""
-		}).ToSlice(&sli)
-
-		if len(sli) <= 2 {
-			// 参数错误, 缺少人数
+		args := cleanCommandArguments(m)
+		if len(args) < 2 {
+			// 参数错误, 至少两个参数: 人数, 密码
 			b.Send(m.Chat, "参数错误!", &tb.SendOptions{ReplyTo: m})
 			return
 		}
-		max_count_s := sli[1]                                   // 人数字符串
+		max_count_s := args[0]                                  // 人数字符串
 		max_count, err := strconv.ParseInt(max_count_s, 10, 32) // 转成int
 		if err != nil || max_count <= 0 {                       // 人数有问题
 			b.Send(m.Chat, "参数错误!", &tb.SendOptions{ReplyTo: m})
 			return
 		}
-		var toJoin []string
-		if len(sli) > 3 {
-			toJoin = sli[3:]
+		var publicInfo string
+		if len(args) > 2 {
+			publicInfo = strings.Join(args[2:], " ")
 		}
 		// 第一个参数: 人数
 		// 第二个参数: 密码
@@ -143,7 +139,7 @@ func main() {
 
 		chatm, err := b.Send(&tb.Chat{ID: group_id},
 			fmt.Sprintf("%s 刚创建了一个队列!\n队列的详细信息是: %s\n回复这条消息, 发送 /join 即可加入队列!\n记得先 /start 我哦!",
-				m.Sender.FirstName, strings.Join(toJoin, " ")),
+				m.Sender.FirstName, publicInfo),
 			&tb.SendOptions{ParseMode: tb.ModeHTML},
 		)
 		if err != nil {
@@ -151,11 +147,12 @@ func main() {
 			return
 		}
 		nq := Queue{
-			Users:   nil,
-			Message: chatm, // 机器人在群里发的消息, 用于从回复消息找到队列
-			Max:     int(max_count),
-			Args:    sli[2:],
-			Creator: m.Sender,
+			Users:      nil,
+			Message:    chatm, // 机器人在群里发的消息, 用于从回复消息找到队列
+			Max:        int(max_count),
+			PublicInfo: publicInfo,
+			Creator:    m.Sender,
+			Password:   args[1],
 		}
 		// 放进队列数组里
 		Queues = append(Queues, &nq)
@@ -350,10 +347,10 @@ func main() {
 			msg += fmt.Sprintf("共有%d人, %d人进行中, 最大同时进行%d人.\n", len(q.Users), doing_count, q.Max)
 			if q.Users[index2].Status == Doing {
 				// 如果已经进行中, 就发密码
-				msg += strings.Join(q.Args, " ")
+				msg += q.Password + " " + q.PublicInfo
 			} else {
 				// 如果没有, 就先不发密码
-				msg += strings.Join(q.Args[1:], " ")
+				msg += q.PublicInfo
 			}
 			b.Send(m.Chat, msg, &tb.SendOptions{ParseMode: tb.ModeHTML})
 		} else {
@@ -388,16 +385,13 @@ func main() {
 
 	b.Handle("/kick", func(m *tb.Message) {
 		// t人
-		var args []string
-		From(strings.Split(m.Text, " ")).Where(func(s interface{}) bool {
-			return s.(string) != ""
-		}).ToSlice(&args)
-		if len(args) < 2 {
+		args := cleanCommandArguments(m)
+		if len(args) == 0 {
 			b.Send(m.Chat, "用法: /kick <index> \n强行踢掉第index个人.", &tb.SendOptions{ReplyTo: m})
 			return
 		}
 		// 找第二个参数
-		toKick, err := strconv.ParseInt(args[1], 10, 64)
+		toKick, err := strconv.ParseInt(args[0], 10, 64)
 		if err != nil || toKick <= 0 {
 			b.Send(m.Chat, "用法: /kick <index> \n强行踢掉第index个人.", &tb.SendOptions{ReplyTo: m})
 			return
@@ -497,12 +491,8 @@ func main() {
 				b.Send(m.Chat, "你还没创建任何队列", &tb.SendOptions{ReplyTo: m})
 				return
 			}
-			var args []string
-			From(strings.Split(m.Text, " ")).Where(func(s interface{}) bool {
-				return s.(string) != ""
-			}).ToSlice(&args)
-			args = args[1:]
 			// 找到参数, 得多于1个
+			args := cleanCommandArguments(m)
 			if len(args) == 0 {
 				b.Send(m.Chat, "参数错误!", &tb.SendOptions{ReplyTo: m})
 				return
@@ -514,7 +504,8 @@ func main() {
 				}
 			}
 			q := Queues[index]
-			q.Args = args
+			q.PublicInfo = strings.Join(args[1:], " ")
+			q.Password = args[0]
 			b.Send(m.Chat, "队列编辑成功!", &tb.SendOptions{ParseMode: tb.ModeHTML})
 		} else {
 			mm, _ := b.Send(m.Chat, "请 *私聊发送* !!!", &tb.SendOptions{
@@ -590,7 +581,7 @@ func (q *Queue) CheckStatus(b *tb.Bot) {
 				doing_count++
 				mm, _ := b.Send(&tb.Chat{ID: group_id}, fmt.Sprint(u.User.FirstName, "加入了队列!"))
 				deleteLater(b, mm)
-				b.Send(q.Users[k].User, fmt.Sprint("加入队列成功! \n队列的详细信息:\n", strings.Join(q.Args, " ")))
+				b.Send(q.Users[k].User, fmt.Sprint("加入队列成功! \n队列的详细信息:\n", q.PublicInfo))
 			}
 
 			if doing_count == q.Max {
@@ -614,7 +605,7 @@ func (q *Queue) CheckStatus(b *tb.Bot) {
 		}
 	}
 	msg += fmt.Sprintf(".......\n共有%d人, %d人进行中, 最大同时进行%d人.\n", len(q.Users), doing_count, q.Max)
-	msg += "队列的详细信息是:" + strings.Join(q.Args[1:], " ") + "\n"
+	msg += "队列的详细信息是:" + q.PublicInfo + "\n"
 	msg += "回复本消息, 发送 /join 即可加入队列."
 	m, err := b.Send(&tb.Chat{ID: group_id}, msg, &tb.SendOptions{ParseMode: tb.ModeHTML})
 	if err != nil {
@@ -659,4 +650,15 @@ func deleteLater(bot *tb.Bot, m *tb.Message) {
 			_ = bot.Delete(m)
 		}()
 	}
+}
+
+func cleanCommandArguments(m *tb.Message) (args []string) {
+	var parts = strings.Split(m.Payload, " ")
+	for _, arg := range parts {
+		arg = strings.TrimSpace(arg)
+		if len(arg) > 0 {
+			args = append(args, arg)
+		}
+	}
+	return
 }
