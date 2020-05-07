@@ -128,10 +128,7 @@ func main() {
 			b.Send(m.Chat, "参数错误!", &tb.SendOptions{ReplyTo: m})
 			return
 		}
-		var publicInfo string
-		if len(args) > 2 {
-			publicInfo = strings.Join(args[2:], " ")
-		}
+		publicInfo := strings.Join(args[2:], " ")
 		// 第一个参数: 人数
 		// 第二个参数: 密码
 		// 之后的参数都是公开参数
@@ -655,8 +652,7 @@ func deleteLater(bot *tb.Bot, m *tb.Message) {
 func cleanCommandArguments(m *tb.Message) (args []string) {
 	var parts = strings.Split(m.Payload, " ")
 	for _, arg := range parts {
-		arg = strings.TrimSpace(arg)
-		if len(arg) > 0 {
+		if arg != "" {
 			args = append(args, arg)
 		}
 	}
