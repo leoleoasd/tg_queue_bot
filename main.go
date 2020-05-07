@@ -119,13 +119,13 @@ func main() {
 		args := cleanCommandArguments(m)
 		if len(args) < 2 {
 			// 参数错误, 至少两个参数: 人数, 密码
-			b.Send(m.Chat, "参数错误!", &tb.SendOptions{ReplyTo: m})
+			b.Send(m.Chat, "参数错误! 正确格式应为: /new <同时人数> <隐藏的详细信息, 如密码> <公开的详细信息, 如门票> \n 例如: /new 2 PASSWO 门票一铃钱", &tb.SendOptions{ReplyTo: m})
 			return
 		}
 		max_count_s := args[0]                                  // 人数字符串
 		max_count, err := strconv.ParseInt(max_count_s, 10, 32) // 转成int
 		if err != nil || max_count <= 0 {                       // 人数有问题
-			b.Send(m.Chat, "参数错误!", &tb.SendOptions{ReplyTo: m})
+			b.Send(m.Chat, "参数错误! 人数应为数字", &tb.SendOptions{ReplyTo: m})
 			return
 		}
 		publicInfo := strings.Join(args[2:], " ")
@@ -487,7 +487,7 @@ func main() {
 			// 找到参数, 得多于1个
 			args := cleanCommandArguments(m)
 			if len(args) == 0 {
-				b.Send(m.Chat, "参数错误!", &tb.SendOptions{ReplyTo: m})
+				b.Send(m.Chat, "参数错误! 正确格式应为: /update <隐藏的详细信息, 如密码> <公开的详细信息, 如门票> \n 例如: /update PASSWO 门票一铃钱", &tb.SendOptions{ReplyTo: m})
 				return
 			}
 			if len(args) > 1 {
