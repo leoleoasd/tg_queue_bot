@@ -152,7 +152,7 @@ func main() {
 			Max:        int(max_count),
 			PublicInfo: publicInfo,
 			Creator:    m.Sender,
-			Password:   password,
+			Password:   args[1],
 		}
 		// 放进队列数组里
 		Queues = append(Queues, &nq)
