@@ -101,6 +101,7 @@ func main() {
 		if m.Chat.ID <= 0 {
 			mm, _ := b.Send(m.Chat, "请在私聊中发送.", &tb.SendOptions{ReplyTo: m})
 			deleteLater(b, mm)
+			deleteLater(b, m)
 			return
 		}
 		// 遍历所有队列, 看创建者是否已经有队列了
@@ -123,13 +124,8 @@ func main() {
 		}
 		max_count_s := args[0]                                  // 人数字符串
 		max_count, err := strconv.ParseInt(max_count_s, 10, 32) // 转成int
-		if err != nil || max_count < 1 || max_count > 7 {       // 人数有问题
+		if err != nil || max_count <= 0 {                       // 人数有问题
 			b.Send(m.Chat, "参数错误!", &tb.SendOptions{ReplyTo: m})
-			return
-		}
-		password := args[1]
-		if len(password) != 5 {
-			b.Send(m.Chat, "参数错误! 密码长度错误!", &tb.SendOptions{ReplyTo: m})
 			return
 		}
 		var publicInfo string
@@ -171,7 +167,7 @@ func main() {
 		}
 		deleteLater(b, m)
 		if m.ReplyTo == nil {
-			mm, _ := b.Send(m.Chat, "你需要回复 xx创建了队列 的消息.", &tb.SendOptions{ReplyTo: m})
+			mm, _ := b.Send(m.Chat, "你需要回复 队列的详情 的消息.", &tb.SendOptions{ReplyTo: m})
 			deleteLater(b, mm)
 			return
 		}
@@ -193,7 +189,7 @@ func main() {
 			}
 		}
 		if index == -1 {
-			mm, _ := b.Send(m.Chat, "你需要回复 xx创建了队列 的消息.\n找不到你回复的消息的队列.", &tb.SendOptions{ReplyTo: m})
+			mm, _ := b.Send(m.Chat, "你需要回复 队列的详情 的消息.\n找不到你回复的消息的队列.", &tb.SendOptions{ReplyTo: m})
 			deleteLater(b, mm)
 			return
 		}
@@ -358,14 +354,31 @@ func main() {
 			}
 			b.Send(m.Chat, msg, &tb.SendOptions{ParseMode: tb.ModeHTML})
 		} else {
-			if m.Chat.ID < 0 {
-				mm, _ := b.Send(m.Chat, "请 *私聊发送* !!!", &tb.SendOptions{
-					ReplyTo:   m,
-					ParseMode: tb.ModeMarkdown,
-				})
+			deleteLater(b, m)
+			if m.ReplyTo == nil {
+				mm, _ := b.Send(m.Chat, "你需要回复 队列的详情 的消息.", &tb.SendOptions{ReplyTo: m})
 				deleteLater(b, mm)
-				deleteLater(b, m)
+				return
 			}
+			idToFind := m.ReplyTo.ID
+			if _, err := MsgToQue[idToFind]; err {
+				idToFind = MsgToQue[idToFind]
+			}
+			index := -1
+			q := &Queue{}
+			for ind, que := range Queues {
+				if que.Message.ID == idToFind {
+					index = ind
+					break
+				}
+			}
+			if index == -1 {
+				mm, _ := b.Send(m.Chat, "你需要回复 队列的详情 的消息.\n找不到你回复的消息的队列.", &tb.SendOptions{ReplyTo: m})
+				deleteLater(b, mm)
+				return
+			}
+			q = Queues[index]
+			q.CheckStatus(b)
 		}
 		return
 	})
@@ -484,9 +497,11 @@ func main() {
 				b.Send(m.Chat, "参数错误!", &tb.SendOptions{ReplyTo: m})
 				return
 			}
-			if len(args[0]) != 5 {
-				b.Send(m.Chat, "参数错误! 密码长度错误!", &tb.SendOptions{ReplyTo: m})
-				return
+			if len(args) > 1 {
+				if _, err := strconv.ParseInt(args[0], 10, 32); err == nil {
+					args = args[1:]
+					b.Send(m.Chat, "你发送的第一个参数是纯数字, 更新队列时不需要输入人数, 已经忽略了这个参数.", &tb.SendOptions{ReplyTo: m})
+				}
 			}
 			q := Queues[index]
 			q.PublicInfo = strings.Join(args[1:], " ")
@@ -575,13 +590,16 @@ func (q *Queue) CheckStatus(b *tb.Bot) {
 		}
 	}
 	// 群里发队列详情
+
 	msg := fmt.Sprintf("由 %s 创建的队列: \n", q.Creator.FirstName)
+	dddd := 0
 	for i, u := range q.Users {
-		if i > 4 {
+		if i > 4 && ((doing_count != q.Max) || (doing_count == q.Max && dddd >= q.Max)) {
 			break
 		}
 		if u.Status == Doing {
-			msg += fmt.Sprintf("%d-%s: %s, 加入于 %d 分钟之前.\n", i+1, u.User.FirstName, []string{"进行中", "暂停中", "等待中"}[u.Status], int(time.Since(u.JoinedAt).Minutes()))
+			msg += fmt.Sprintf("%d-%s: %s, 开始于 %d 分钟之前.\n", i+1, u.User.FirstName, []string{"进行中", "暂停中", "等待中"}[u.Status], int(time.Since(u.JoinedAt).Minutes()))
+			dddd++
 		} else {
 			msg += fmt.Sprintf("%d-%s: %s\n", i+1, u.User.FirstName, []string{"进行中", "暂停中", "等待中"}[u.Status])
 		}
@@ -628,7 +646,7 @@ func (q *Queue) String() string {
 func deleteLater(bot *tb.Bot, m *tb.Message) {
 	if m != nil {
 		go func() {
-			<-time.After(10 * time.Second)
+			time.Sleep(10 * time.Second)
 			_ = bot.Delete(m)
 		}()
 	}
